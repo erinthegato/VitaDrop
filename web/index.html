@@ -62,6 +62,22 @@
   .err .bar i { background: var(--red); }
   .err .s { color: var(--red); font-weight: 600; }
   .hint { margin-top: 26px; text-align: center; font-size: 13px; color: var(--dim); }
+  details.card { margin-top: 22px; padding: 0; overflow: hidden; }
+  details summary {
+    list-style: none; cursor: pointer; padding: 16px 20px; font-weight: 700; font-size: 17px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::after { content: "+"; color: var(--sky); font-size: 24px; line-height: 1; }
+  details[open] summary::after { content: "\2212"; }
+  details .steps { padding: 0 20px 18px; }
+  details p { margin: 0 0 12px; color: var(--dim); }
+  ol { margin: 0; padding-left: 22px; }
+  ol li { margin-bottom: 10px; line-height: 1.45; }
+  code {
+    background: #e8f5fb; color: var(--sky-dark); border-radius: 6px; padding: 1px 6px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all;
+  }
 </style>
 </head>
 <body>
@@ -73,6 +89,21 @@
     <label class="btn">Choose files<input id="pick" type="file" multiple hidden></label>
   </div>
   <div id="list"></div>
+  <details class="card">
+    <summary>Add "Send to Vita" to the Share menu</summary>
+    <div class="steps">
+      <p>Set this up once, then send anything with Share &rarr; Send to Vita. No QR code needed.</p>
+      <ol>
+        <li>Open the <b>Shortcuts</b> app and tap <b>+</b>. Tap the name at the top and call it <b>Send to Vita</b>.</li>
+        <li>Tap the name again &rarr; <b>Details</b> &rarr; turn on <b>Show in Share Sheet</b>.</li>
+        <li>Add the action <b>Repeat with Each</b> and set it to <b>Shortcut Input</b>.</li>
+        <li>Inside the repeat, add <b>Get Contents of URL</b>. Set the URL to <code>http://vitadrop.local:8080/upload</code></li>
+        <li>Tap <b>Show More</b>: set <b>Method</b> to <b>POST</b>. Under <b>Headers</b>, add <code>X-File-Name</code> with the value <b>Repeat Item</b>, then tap it and choose <b>Name</b>. Set <b>Request Body</b> to <b>File</b> and pick <b>Repeat Item</b>.</li>
+        <li>After <b>End Repeat</b>, add <b>Show Notification</b> with the text <b>Sent to Vita</b>. Tap <b>Done</b>.</li>
+      </ol>
+      <p>The first time, allow the shortcut to connect and to find devices on your network. If it can't find <code>vitadrop.local</code>, use the address under the QR code on the Vita instead, plus <code>upload</code> at the end.</p>
+    </div>
+  </details>
   <p class="hint">Saved on the Vita in ux0:data/VitaDrop/<br>Keep this page open until every file says "Saved".</p>
 </main>
 <script>

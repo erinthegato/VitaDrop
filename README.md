@@ -64,6 +64,26 @@ The first build downloads a small QR code library, so it needs internet. When it
 3. In Safari, tap **Choose files**, then pick photos, videos, or files from the Files app.
 4. Wait until each file says **Saved**. Press **START** on the Vita to exit.
 
+### "Send to Vita" in the iPhone Share menu
+
+Once it's set up, you can send any photo or file with **Share → Send to Vita**, without scanning anything. The Vita answers to the name `vitadrop.local`, so the shortcut keeps working even when its IP address changes.
+
+Set it up once in the **Shortcuts** app (the steps are also on the upload page):
+
+1. Tap **+**, then tap the name at the top and call it **Send to Vita**.
+2. Tap the name again → **Details** → turn on **Show in Share Sheet**.
+3. Add **Repeat with Each** and set it to **Shortcut Input**.
+4. Inside the repeat, add **Get Contents of URL** with the URL `http://vitadrop.local:8080/upload`.
+5. Tap **Show More**:
+   - Set **Method** to **POST**.
+   - Under **Headers**, add `X-File-Name` = **Repeat Item**, then tap it and choose **Name**.
+   - Set **Request Body** to **File** and pick **Repeat Item**.
+6. After **End Repeat**, add **Show Notification** with the text "Sent to Vita". Tap **Done**.
+
+The first time you use it, allow the shortcut to connect and to find devices on your local network. If your router blocks `.local` names, replace `vitadrop.local:8080` with the address shown under the QR code on the Vita.
+
+Files without an extension (like photos from the Share menu) get the right one added automatically, such as `.jpg` or `.mov`.
+
 ### Buttons
 
 | Button | What it does |
@@ -99,6 +119,7 @@ While VitaDrop is open, the Vita won't go to sleep by itself, so close the app w
 | `src/main.c` | Starts everything, connects to Wi-Fi, handles the buttons |
 | `src/ui.c` | Draws the Vita screen (the colours for the theme are at the top) |
 | `src/music.c` | The background music: a tiny synthesizer and the song's notes |
+| `src/mdns.c` | Answers `vitadrop.local` on the network so the shortcut can find the Vita |
 | `src/server.c` | The small web server that serves the upload page and saves files |
 | `web/index.html` | The upload page your iPhone sees |
 | `src/page_html.h` | `web/index.html` turned into C code. After editing the page, regenerate it with `python3 tools/embed_html.py` |

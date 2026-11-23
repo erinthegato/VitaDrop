@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -174,91 +176,280 @@ static void pick_free_path(const char *name, char *out_path, size_t out_size,
     }
 }
 
-/* Reads the Content-Length header. Returns -1 if it isn't there. */
-static long long get_content_length(const char *headers)
+/*
+ * Finds a header like "Content-Type: image/jpeg" (name is matched without
+ * caring about upper/lower case) and copies its value. Returns 1 if found.
+ */
+static int get_header(const char *headers, const char *name, char *out, size_t out_size)
 {
-    char lower[HEADER_MAX];
-    size_t i;
-    for (i = 0; headers[i] && i + 1 < sizeof(lower); i++)
-        lower[i] = (char)tolower((unsigned char)headers[i]);
-    lower[i] = '\0';
+    size_t name_len = strlen(name);
+    const char *line = strstr(headers, "\r\n");
+    while (line) {
+        line += 2;
+        if (strncasecmp(line, name, name_len) == 0 && line[name_len] == ':') {
+            const char *v = line + name_len + 1;
+            while (*v == ' ' || *v == '\t') v++;
+            size_t o = 0;
+            while (v[o] && v[o] != '\r' && o + 1 < out_size) { out[o] = v[o]; o++; }
+            out[o] = '\0';
+            return 1;
+        }
+        line = strstr(line, "\r\n");
+    }
+    return 0;
+}
 
-    const char *p = strstr(lower, "\r\ncontent-length:");
-    if (!p) return -1;
-    p += strlen("\r\ncontent-length:");
-    while (*p == ' ' || *p == '\t') p++;
-    if (!isdigit((unsigned char)*p)) return -1;
-    return strtoll(p, NULL, 10);
+/* Decodes %XX sequences in place (for names sent in a header). */
+static void percent_decode(char *s)
+{
+    char *o = s;
+    for (char *p = s; *p; ) {
+        if (*p == '%' && hex_value(p[1]) >= 0 && hex_value(p[2]) >= 0) {
+            *o++ = (char)(hex_value(p[1]) * 16 + hex_value(p[2]));
+            p += 3;
+        } else {
+            *o++ = *p++;
+        }
+    }
+    *o = '\0';
+}
+
+/* ---------- reading the request body ---------- */
+
+/* Gives back the bytes that arrived with the headers first, then reads more. */
+typedef struct {
+    int fd;
+    const char *pending;
+    size_t pending_len;
+} Reader;
+
+static ssize_t reader_read(Reader *r, char *buf, size_t n)
+{
+    if (r->pending_len > 0) {
+        size_t k = n < r->pending_len ? n : r->pending_len;
+        memcpy(buf, r->pending, k);
+        r->pending += k;
+        r->pending_len -= k;
+        return (ssize_t)k;
+    }
+    return recv(r->fd, buf, n, 0);
+}
+
+static int reader_exact(Reader *r, char *buf, size_t n)
+{
+    while (n > 0) {
+        ssize_t got = reader_read(r, buf, n);
+        if (got <= 0) return -1;
+        buf += got;
+        n -= (size_t)got;
+    }
+    return 0;
+}
+
+/* Reads one line ending in \n. Returns its length, or -1 on error. */
+static int reader_line(Reader *r, char *buf, size_t max)
+{
+    size_t o = 0;
+    for (;;) {
+        char c;
+        if (reader_read(r, &c, 1) != 1) return -1;
+        if (o + 1 < max) buf[o++] = c;
+        if (c == '\n') break;
+    }
+    buf[o] = '\0';
+    return (int)o;
+}
+
+/* ---------- naming the file ---------- */
+
+static int has_extension(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    return dot && dot != name && dot[1] != '\0';
+}
+
+/* Guesses an extension from the Content-Type header. */
+static const char *extension_from_type(const char *type)
+{
+    static const struct { const char *type, *ext; } map[] = {
+        { "image/jpeg", ".jpg" }, { "image/heic", ".heic" }, { "image/heif", ".heif" },
+        { "image/png", ".png" }, { "image/gif", ".gif" }, { "image/webp", ".webp" },
+        { "video/quicktime", ".mov" }, { "video/mp4", ".mp4" }, { "audio/mpeg", ".mp3" },
+        { "audio/mp4", ".m4a" }, { "audio/x-m4a", ".m4a" }, { "audio/wav", ".wav" },
+        { "application/pdf", ".pdf" }, { "text/plain", ".txt" }, { "application/zip", ".zip" },
+    };
+    for (unsigned i = 0; i < sizeof(map) / sizeof(map[0]); i++)
+        if (strncasecmp(type, map[i].type, strlen(map[i].type)) == 0) return map[i].ext;
+    return NULL;
+}
+
+/* Guesses an extension from the first bytes of the file. */
+static const char *extension_from_bytes(const unsigned char *b, size_t n)
+{
+    if (n >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) return ".jpg";
+    if (n >= 4 && memcmp(b, "\x89PNG", 4) == 0) return ".png";
+    if (n >= 4 && memcmp(b, "GIF8", 4) == 0) return ".gif";
+    if (n >= 4 && memcmp(b, "%PDF", 4) == 0) return ".pdf";
+    if (n >= 4 && memcmp(b, "PK\x03\x04", 4) == 0) return ".zip";
+    if (n >= 3 && memcmp(b, "ID3", 3) == 0) return ".mp3";
+    if (n >= 12 && memcmp(b, "RIFF", 4) == 0 && memcmp(b + 8, "WAVE", 4) == 0) return ".wav";
+    if (n >= 12 && memcmp(b + 4, "ftyp", 4) == 0) {
+        if (memcmp(b + 8, "hei", 3) == 0 || memcmp(b + 8, "mif1", 4) == 0) return ".heic";
+        if (memcmp(b + 8, "qt  ", 4) == 0) return ".mov";
+        if (memcmp(b + 8, "M4A ", 4) == 0) return ".m4a";
+        return ".mp4";
+    }
+    return ".bin";
+}
+
+static void default_name(char *out, size_t size)
+{
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    if (t)
+        snprintf(out, size, "VitaDrop_%04d%02d%02d_%02d%02d%02d",
+                 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
+    else
+        snprintf(out, size, "VitaDrop_upload");
 }
 
 /* ---------- the upload itself ---------- */
 
-static void handle_upload(int fd, const char *path, long long length,
+/*
+ * The file can arrive two ways:
+ *   - with a Content-Length header (browsers do this), or
+ *   - "chunked", in pieces with sizes in between (iOS Shortcuts may do this).
+ * It is written to a temporary file first and renamed once complete, so a
+ * failed upload never leaves half a file behind.
+ *
+ * The file name comes from ?name=... in the address, or an X-File-Name header.
+ * If it has no extension, one is guessed from the Content-Type or the bytes.
+ */
+static void handle_upload(int fd, const char *path, const char *headers,
                           const char *already, size_t already_len)
 {
-    char name[200], file_path[512], saved_name[220];
+    char name[200] = "", value[128];
+    char temp_path[300], file_path[512], saved_name[220];
+    unsigned char first_bytes[16];
+    size_t first_len = 0;
+    uint64_t received = 0;
+    int ok = 1;
 
-    if (length < 0) { send_text(fd, "411 Length Required", "Missing file size"); return; }
-    if (!get_query_value(path, "name", name, sizeof(name))) strcpy(name, "upload.bin");
-    clean_file_name(name);
-    pick_free_path(name, file_path, sizeof(file_path), saved_name, sizeof(saved_name));
-
-    FILE *f = fopen(file_path, "wb");
-    if (!f) {
-        set_message("Could not create %s", saved_name);
-        send_text(fd, "500 Internal Server Error", "Could not create the file on the Vita");
+    long long length = -1;
+    if (get_header(headers, "Content-Length", value, sizeof(value)))
+        length = strtoll(value, NULL, 10);
+    int chunked = get_header(headers, "Transfer-Encoding", value, sizeof(value)) &&
+                  strncasecmp(value, "chunked", 7) == 0;
+    if (!chunked && length < 0) {
+        send_text(fd, "411 Length Required", "Missing file size");
         return;
     }
 
+    if (!get_query_value(path, "name", name, sizeof(name)) || !name[0]) {
+        if (get_header(headers, "X-File-Name", name, sizeof(name))) percent_decode(name);
+    }
+    if (!name[0]) default_name(name, sizeof(name));
+    clean_file_name(name);
+
+    snprintf(temp_path, sizeof(temp_path), "%s/.incoming.tmp", g_dir);
+    FILE *f = fopen(temp_path, "wb");
+    if (!f) {
+        set_message("Could not write to %s", g_dir);
+        send_text(fd, "500 Internal Server Error", "Could not create the file on the Vita");
+        return;
+    }
     char *buffer = (char *)malloc(CHUNK_SIZE);
     if (!buffer) {
         fclose(f);
-        remove(file_path);
+        remove(temp_path);
         send_text(fd, "500 Internal Server Error", "Out of memory");
         return;
     }
 
-    snprintf(g_status.current_name, sizeof(g_status.current_name), "%.127s", saved_name);
-    g_status.current_total = (uint64_t)length;
+    snprintf(g_status.current_name, sizeof(g_status.current_name), "%.127s", name);
+    g_status.current_total = length > 0 ? (uint64_t)length : 0;
     g_status.current_done = 0;
     g_status.busy = 1;
-    set_message("Receiving %s", saved_name);
+    set_message("Receiving %.100s", name);
 
-    unsigned long long remaining = (unsigned long long)length;
-    int ok = 1;
+    Reader r = { fd, already, already_len };
 
-    /* Part of the file may have arrived together with the headers. */
-    if (already_len > remaining) already_len = (size_t)remaining;
-    if (already_len > 0) {
-        if (fwrite(already, 1, already_len, f) != already_len) ok = 0;
-        remaining -= already_len;
-        g_status.current_done += already_len;
+#define SAVE_BYTES(data, count) do {                                          \
+        size_t _n = (count);                                                  \
+        if (first_len < sizeof(first_bytes)) {                                \
+            size_t _k = sizeof(first_bytes) - first_len;                      \
+            if (_k > _n) _k = _n;                                             \
+            memcpy(first_bytes + first_len, (data), _k);                      \
+            first_len += _k;                                                  \
+        }                                                                     \
+        if (fwrite((data), 1, _n, f) != _n) { ok = 0; }                       \
+        received += _n;                                                       \
+        g_status.current_done = received;                                     \
+        keep_awake();                                                         \
+    } while (0)
+
+    if (chunked) {
+        char line[64];
+        while (ok) {
+            if (reader_line(&r, line, sizeof(line)) < 0) { ok = 0; break; }
+            unsigned long long size = strtoull(line, NULL, 16);
+            if (size == 0) {
+                /* end of the file: skip any trailing headers up to the blank line */
+                while (reader_line(&r, line, sizeof(line)) > 2) {}
+                break;
+            }
+            while (ok && size > 0) {
+                size_t want = size < CHUNK_SIZE ? (size_t)size : CHUNK_SIZE;
+                ssize_t n = reader_read(&r, buffer, want);
+                if (n <= 0) { ok = 0; break; }
+                SAVE_BYTES(buffer, (size_t)n);
+                size -= (unsigned long long)n;
+            }
+            char crlf[2];
+            if (ok && reader_exact(&r, crlf, 2) < 0) ok = 0;
+        }
+    } else {
+        unsigned long long remaining = (unsigned long long)length;
+        while (ok && remaining > 0) {
+            size_t want = remaining < CHUNK_SIZE ? (size_t)remaining : CHUNK_SIZE;
+            ssize_t n = reader_read(&r, buffer, want);
+            if (n <= 0) { ok = 0; break; }        /* phone disconnected */
+            SAVE_BYTES(buffer, (size_t)n);
+            remaining -= (unsigned long long)n;
+        }
     }
-
-    while (ok && remaining > 0) {
-        size_t want = remaining < CHUNK_SIZE ? (size_t)remaining : CHUNK_SIZE;
-        ssize_t n = recv(fd, buffer, want, 0);
-        if (n <= 0) { ok = 0; break; }              /* phone disconnected */
-        if (fwrite(buffer, 1, (size_t)n, f) != (size_t)n) { ok = 0; break; }  /* disk full? */
-        remaining -= (unsigned long long)n;
-        g_status.current_done += (uint64_t)n;
-        keep_awake();
-    }
+#undef SAVE_BYTES
 
     free(buffer);
     if (fclose(f) != 0) ok = 0;
     g_status.busy = 0;
 
     if (!ok) {
-        remove(file_path);                           /* don't leave half a file */
-        set_message("Upload of %s failed", saved_name);
+        remove(temp_path);                         /* don't leave half a file */
+        set_message("Upload of %.100s failed", name);
         send_text(fd, "500 Internal Server Error", "Upload failed (connection lost or memory card full)");
         return;
     }
 
+    /* Add an extension if the name doesn't have one. */
+    if (!has_extension(name)) {
+        const char *ext = NULL;
+        if (get_header(headers, "Content-Type", value, sizeof(value))) ext = extension_from_type(value);
+        if (!ext) ext = extension_from_bytes(first_bytes, first_len);
+        strncat(name, ext, sizeof(name) - strlen(name) - 1);
+    }
+
+    pick_free_path(name, file_path, sizeof(file_path), saved_name, sizeof(saved_name));
+    if (rename(temp_path, file_path) != 0) {
+        remove(temp_path);
+        set_message("Could not save %.100s", saved_name);
+        send_text(fd, "500 Internal Server Error", "Could not save the file");
+        return;
+    }
+
     g_status.files_received++;
-    g_status.bytes_received += (uint64_t)length;
-    set_message("Saved %s", saved_name);
+    g_status.bytes_received += received;
+    set_message("Saved %.100s", saved_name);
 
     char reply[320];
     snprintf(reply, sizeof(reply), "{\"ok\":true,\"saved\":\"%s\"}", saved_name);
@@ -292,12 +483,11 @@ static void handle_client(int fd)
     }
 
     end[2] = '\0';   /* cut the text so header parsing stops before the file data */
-    long long length = get_content_length(head);
 
     if (strcmp(method, "GET") == 0 && (strcmp(path, "/") == 0 || strncmp(path, "/?", 2) == 0)) {
         send_response(fd, "200 OK", "text/html; charset=utf-8", PAGE_HTML, PAGE_HTML_LEN);
     } else if (strcmp(method, "POST") == 0 && strncmp(path, "/upload", 7) == 0) {
-        handle_upload(fd, path, length, head + header_len, got - header_len);
+        handle_upload(fd, path, head, head + header_len, got - header_len);
     } else {
         send_text(fd, "404 Not Found", "Not found");
     }

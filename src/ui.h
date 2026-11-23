@@ -13,6 +13,7 @@ void ui_draw_waiting(vita2d_pgf *font, int music_on);
 
 /* The main screen: QR code on the left, address and transfer status on the right. */
 void ui_draw_main(vita2d_pgf *font, const char *url, const uint8_t *qr, int have_qr,
-                  const ServerStatus *st, const char *save_dir, int music_on);
+                  const ServerStatus *st, const char *save_dir, int music_on,
+                  int shortcut_ready);
 
 #endif

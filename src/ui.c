@@ -152,7 +152,8 @@ void ui_draw_waiting(vita2d_pgf *font, int music_on)
 }
 
 void ui_draw_main(vita2d_pgf *font, const char *url, const uint8_t *qr, int have_qr,
-                  const ServerStatus *st, const char *save_dir, int music_on)
+                  const ServerStatus *st, const char *save_dir, int music_on,
+                  int shortcut_ready)
 {
     char line[200], size_text[32];
     frame(font, 1, music_on);
@@ -210,6 +211,10 @@ void ui_draw_main(vita2d_pgf *font, const char *url, const uint8_t *qr, int have
         vita2d_pgf_draw_text(font, x + (st->files_received ? 22 : 0), 397, color, 0.9f, line);
     }
 
+    if (shortcut_ready) {
+        vita2d_draw_fill_circle(x + 5, 433, 5, SKY);
+        vita2d_pgf_draw_text(font, x + 16, 438, DIM, 0.8f, "Share-menu shortcut: vitadrop.local");
+    }
     snprintf(line, sizeof(line), "Saved to %s/", save_dir);
-    vita2d_pgf_draw_text(font, x, 452, DIM, 0.8f, line);
+    vita2d_pgf_draw_text(font, x, 460, DIM, 0.8f, line);
 }

@@ -21,6 +21,7 @@
 #include <vita2d.h>
 
 #include "qrcodegen.h"
+#include "mdns.h"
 #include "music.h"
 #include "server.h"
 #include "ui.h"
@@ -65,6 +66,7 @@ int main(void)
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_DIGITAL);
     start_network();
     music_start();
+    mdns_start();
 
     char ip[32] = "";
     char url[64] = "";
@@ -114,6 +116,7 @@ int main(void)
             if (get_ip(new_ip, sizeof(new_ip))) {
                 if (strcmp(new_ip, ip) != 0) {
                     snprintf(ip, sizeof(ip), "%s", new_ip);
+                    mdns_set_ip(ip);   /* answer "vitadrop.local" with this address */
                     snprintf(url, sizeof(url), "http://%s:%d/", ip, PORT);
                     have_qr = qrcodegen_encodeText(url, qr_temp, qr, qrcodegen_Ecc_MEDIUM,
                                                    qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
@@ -125,6 +128,7 @@ int main(void)
                 }
             } else {
                 ip[0] = '\0';   /* show the "Waiting for Wi-Fi" screen */
+                mdns_set_ip("");
             }
         }
 
@@ -137,7 +141,8 @@ int main(void)
         if (!ip[0])
             ui_draw_waiting(font, music_is_enabled());
         else
-            ui_draw_main(font, url, qr, have_qr, &st, SAVE_DIR, music_is_enabled());
+            ui_draw_main(font, url, qr, have_qr, &st, SAVE_DIR, music_is_enabled(),
+                         mdns_is_active());
 
         vita2d_end_drawing();
         vita2d_swap_buffers();
@@ -145,6 +150,7 @@ int main(void)
 
     server_stop();
     music_stop();
+    mdns_stop();
     vita2d_fini();
     vita2d_free_pgf(font);
     sceNetCtlTerm();

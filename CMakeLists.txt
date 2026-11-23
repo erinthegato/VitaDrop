@@ -32,6 +32,7 @@ add_executable(${PROJECT_NAME}
   src/server.c
   src/ui.c
   src/music.c
+  src/mdns.c
   ${qrcodegen_SOURCE_DIR}/c/qrcodegen.c
 )
 
