@@ -1,0 +1,50 @@
+# Builds VitaDrop.vpk on GitHub's computers, so you don't need VitaSDK installed.
+#
+# - Every push: builds the app. Download it from the Actions tab (under "Artifacts").
+# - Pushing a tag like v1.0: also creates a GitHub Release with the .vpk attached.
+
+name: Build VitaDrop
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:     # adds a "Run workflow" button in the Actions tab
+
+permissions:
+  contents: write        # needed to create Releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # A ready-made machine image that already has VitaSDK and vita2d installed.
+    container: vitasdk/vitasdk:latest
+
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          command -v cmake >/dev/null && command -v make >/dev/null || apk add --no-cache cmake make
+          cmake --version
+
+      - name: Build VitaDrop.vpk
+        run: |
+          cmake -S . -B build
+          cmake --build build -j"$(nproc)"
+          ls -la build/VitaDrop.vpk
+
+      - name: Save the .vpk for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: VitaDrop-vpk
+          path: build/VitaDrop.vpk
+          if-no-files-found: error
+
+      - name: Attach the .vpk to a Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/VitaDrop.vpk
