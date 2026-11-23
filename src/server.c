@@ -218,7 +218,7 @@ static void handle_upload(int fd, const char *path, long long length,
         return;
     }
 
-    snprintf(g_status.current_name, sizeof(g_status.current_name), "%s", saved_name);
+    snprintf(g_status.current_name, sizeof(g_status.current_name), "%.127s", saved_name);
     g_status.current_total = (uint64_t)length;
     g_status.current_done = 0;
     g_status.busy = 1;
