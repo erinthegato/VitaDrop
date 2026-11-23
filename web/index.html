@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VitaDrop</title>
+<style>
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #0b1020; color: #e8ecf8; }
+  main { max-width: 520px; margin: 0 auto; padding: 28px 18px 60px; }
+  h1 { margin: 0 0 4px; font-size: 28px; }
+  p.sub { margin: 0 0 24px; color: #9aa6c8; }
+  .btn { display: block; text-align: center; background: #2a63ff; color: #fff; font-size: 18px; font-weight: 600;
+         padding: 16px; border-radius: 14px; cursor: pointer; }
+  .btn:active { background: #1f4fd1; }
+  .row { background: #151c33; border-radius: 12px; padding: 12px 14px; margin-top: 12px; }
+  .n { font-weight: 600; word-break: break-all; }
+  .bar { height: 6px; background: #26304f; border-radius: 3px; margin: 8px 0 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: #2a63ff; transition: width .15s; }
+  .s { font-size: 14px; color: #9aa6c8; }
+  .ok .bar i { background: #22c55e; }
+  .ok .s { color: #22c55e; }
+  .err .bar i { background: #ef4444; }
+  .err .s { color: #ef4444; }
+  .hint { margin-top: 28px; font-size: 13px; color: #6f7a9c; }
+</style>
+</head>
+<body>
+<main>
+  <h1>VitaDrop</h1>
+  <p class="sub">Send files from this phone to your PS Vita.</p>
+  <label class="btn">Choose files<input id="pick" type="file" multiple hidden></label>
+  <div id="list"></div>
+  <p class="hint">Files are saved on the Vita in ux0:data/VitaDrop/. Keep this page open until every file says "Saved".</p>
+</main>
+<script>
+  const pick = document.getElementById('pick');
+  const list = document.getElementById('list');
+
+  // Upload the chosen files one at a time.
+  pick.onchange = async () => {
+    const files = [...pick.files];
+    pick.value = '';
+    for (const file of files) await upload(file);
+  };
+
+  function upload(file) {
+    return new Promise(done => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = '<div class="n"></div><div class="bar"><i></i></div><div class="s">Waiting...</div>';
+      row.querySelector('.n').textContent = file.name;
+      list.prepend(row);
+      const bar = row.querySelector('i');
+      const status = row.querySelector('.s');
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/upload?name=' + encodeURIComponent(file.name));
+      xhr.upload.onprogress = e => {
+        if (!e.lengthComputable) return;
+        const pct = Math.round(e.loaded / e.total * 100);
+        bar.style.width = pct + '%';
+        status.textContent = pct + '%';
+      };
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          let reply = {};
+          try { reply = JSON.parse(xhr.responseText); } catch (e) {}
+          bar.style.width = '100%';
+          status.textContent = 'Saved as ' + (reply.saved || file.name);
+          row.classList.add('ok');
+        } else {
+          status.textContent = 'Failed (error ' + xhr.status + ')';
+          row.classList.add('err');
+        }
+        done();
+      };
+      xhr.onerror = () => {
+        status.textContent = 'Connection lost. Is the Vita app still open?';
+        row.classList.add('err');
+        done();
+      };
+      xhr.send(file);
+    });
+  }
+</script>
+</body>
+</html>
