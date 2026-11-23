@@ -64,6 +64,18 @@ The first build downloads a small QR code library, so it needs internet. When it
 3. In Safari, tap **Choose files**, then pick photos, videos, or files from the Files app.
 4. Wait until each file says **Saved**. Press **START** on the Vita to exit.
 
+### Buttons
+
+| Button | What it does |
+|---|---|
+| **CIRCLE** | Music on / off |
+| **TRIANGLE** | Screen off (transfers keep going) |
+| **START** | Exit |
+
+### Music
+
+VitaDrop plays a relaxed, original bossa-nova tune made by a small synthesizer built into the app, so there's no music file. Press **CIRCLE** to turn it off. To change the song, edit the note tables at the top of `src/music.c`.
+
 ### Screen-off mode (saves battery)
 
 Press **TRIANGLE** to turn the Vita's screen off. VitaDrop keeps receiving files in the dark. Press any button to turn the screen back on.
@@ -84,7 +96,9 @@ While VitaDrop is open, the Vita won't go to sleep by itself, so close the app w
 
 | File | What it does |
 |---|---|
-| `src/main.c` | Connects to Wi-Fi, draws the QR code and status on the Vita screen |
+| `src/main.c` | Starts everything, connects to Wi-Fi, handles the buttons |
+| `src/ui.c` | Draws the Vita screen (the colours for the theme are at the top) |
+| `src/music.c` | The background music: a tiny synthesizer and the song's notes |
 | `src/server.c` | The small web server that serves the upload page and saves files |
 | `web/index.html` | The upload page your iPhone sees |
 | `src/page_html.h` | `web/index.html` turned into C code. After editing the page, regenerate it with `python3 tools/embed_html.py` |

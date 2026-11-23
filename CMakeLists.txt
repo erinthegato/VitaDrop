@@ -30,6 +30,8 @@ FetchContent_MakeAvailable(qrcodegen)
 add_executable(${PROJECT_NAME}
   src/main.c
   src/server.c
+  src/ui.c
+  src/music.c
   ${qrcodegen_SOURCE_DIR}/c/qrcodegen.c
 )
 
@@ -49,6 +51,7 @@ target_link_libraries(${PROJECT_NAME}
   SceNet_stub
   SceNetCtl_stub
   ScePower_stub
+  SceAudio_stub
   SceLibKernel_stub
   freetype
   png
