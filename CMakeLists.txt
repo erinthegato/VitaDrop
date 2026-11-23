@@ -48,6 +48,7 @@ target_link_libraries(${PROJECT_NAME}
   SceAppUtil_stub
   SceNet_stub
   SceNetCtl_stub
+  ScePower_stub
   SceLibKernel_stub
   freetype
   png

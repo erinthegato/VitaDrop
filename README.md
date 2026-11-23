@@ -64,6 +64,14 @@ The first build downloads a small QR code library, so it needs internet. When it
 3. In Safari, tap **Choose files**, then pick photos, videos, or files from the Files app.
 4. Wait until each file says **Saved**. Press **START** on the Vita to exit.
 
+### Screen-off mode (saves battery)
+
+Press **TRIANGLE** to turn the Vita's screen off. VitaDrop keeps receiving files in the dark. Press any button to turn the screen back on.
+
+While VitaDrop is open, the Vita won't go to sleep by itself, so close the app when you're done.
+
+**Don't use the power button during a transfer.** It puts the Vita into real sleep, which pauses everything, including Wi-Fi, so any upload in progress stops. When you wake the Vita, VitaDrop reconnects by itself. Just choose the file again on your iPhone.
+
 ## Troubleshooting
 
 - **"Waiting for Wi-Fi..." stays on screen**: connect the Vita in Settings > Network > Wi-Fi Settings, then reopen the app.

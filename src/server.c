@@ -305,10 +305,20 @@ static void handle_client(int fd)
 
 /* ---------- the background loop ---------- */
 
-static void server_loop(void)
+static void sleep_ms(int ms)
+{
+#ifdef __vita__
+    sceKernelDelayThread((SceUInt)ms * 1000);
+#else
+    usleep((useconds_t)ms * 1000);
+#endif
+}
+
+/* Opens the listening socket. Returns -1 if the network isn't ready yet. */
+static int open_listener(void)
 {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) { set_message("Could not open network socket"); return; }
+    if (fd < 0) return -1;
 
     int yes = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
@@ -320,31 +330,60 @@ static void server_loop(void)
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(fd, 4) < 0) {
-        set_message("Port %d is busy", g_port);
         close(fd);
-        return;
+        return -1;
     }
+    return fd;
+}
 
-    g_listen_fd = fd;
-    g_status.running = 1;
-    set_message("Ready. Scan the QR code.");
-
+static void server_loop(void)
+{
+    /*
+     * Outer loop: (re)open the listening socket. When the Vita goes into real
+     * sleep and wakes up, Wi-Fi reconnects and the old socket stops working,
+     * so we simply open a fresh one.
+     */
     while (g_keep_running) {
-        int client = accept(fd, NULL, NULL);
-        if (client < 0) {
-            if (!g_keep_running) break;
+        int fd = open_listener();
+        if (fd < 0) {
+            g_status.running = 0;
+            set_message("Waiting for the network...");
+            sleep_ms(2000);
             continue;
         }
-        /* If the phone goes quiet for 30 seconds, give up on it. */
-        struct timeval tv = { 30, 0 };
-        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-        handle_client(client);
-        close(client);
+        g_listen_fd = fd;
+        g_status.running = 1;
+        set_message("Ready. Scan the QR code.");
+
+        int failures = 0;
+        while (g_keep_running) {
+            int client = accept(fd, NULL, NULL);
+            if (client < 0) {
+                if (!g_keep_running) break;
+                if (errno == EINTR) continue;
+                if (++failures >= 3) break;      /* socket is dead; reopen it */
+                sleep_ms(500);
+                continue;
+            }
+            failures = 0;
+
+            /* If the phone goes quiet for 30 seconds, give up on it. */
+            struct timeval tv = { 30, 0 };
+            setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+            handle_client(client);
+            close(client);
+        }
+
+        if (g_listen_fd == fd) {
+            g_listen_fd = -1;
+            close(fd);
+        }
+        g_status.running = 0;
+        if (g_keep_running) sleep_ms(1000);
     }
-
-    g_status.running = 0;
 }
 
 #ifdef __vita__

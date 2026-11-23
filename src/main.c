@@ -14,6 +14,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <psp2/net/net.h>
 #include <psp2/net/netctl.h>
+#include <psp2/power.h>
 #include <psp2/sysmodule.h>
 #include <vita2d.h>
 
@@ -105,29 +106,55 @@ int main(void)
 
     SceCtrlData pad;
     unsigned int previous_buttons = 0;
+    int screen_off = 0;
+    int frame = 0;
 
     while (1) {
         sceCtrlPeekBufferPositive(0, &pad, 1);
         unsigned int pressed = pad.buttons & ~previous_buttons;
         previous_buttons = pad.buttons;
-        if (pressed & SCE_CTRL_START) break;
 
-        /* Keep the screen on while the app is open. */
+        /*
+         * Stop the Vita from going to sleep on its own while the app is open.
+         * (The screen can still turn off; transfers keep going.)
+         */
         sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
 
-        /* Wait for Wi-Fi, then start the server and make the QR code once. */
-        char new_ip[32];
-        if (get_ip(new_ip, sizeof(new_ip))) {
-            if (strcmp(new_ip, ip) != 0) {
-                snprintf(ip, sizeof(ip), "%s", new_ip);
-                snprintf(url, sizeof(url), "http://%s:%d/", ip, PORT);
-                have_qr = qrcodegen_encodeText(url, qr_temp, qr, qrcodegen_Ecc_MEDIUM,
-                                               qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
-                                               qrcodegen_Mask_AUTO, true);
+        if (screen_off) {
+            /* Screen-off mode: any button turns the screen back on. */
+            if (pressed) {
+                scePowerRequestDisplayOn();
+                screen_off = 0;
+            } else {
+                sceKernelDelayThread(100 * 1000);   /* draw nothing, save battery */
+                continue;
             }
-            if (!server_started) {
-                server_start(SAVE_DIR, PORT);
-                server_started = 1;
+        } else {
+            if (pressed & SCE_CTRL_START) break;
+            if ((pressed & SCE_CTRL_TRIANGLE) && ip[0]) {
+                scePowerRequestDisplayOff();
+                screen_off = 1;
+                continue;
+            }
+        }
+
+        /* Check Wi-Fi about twice a second (it can drop, or change after sleep). */
+        if (frame++ % 30 == 0) {
+            char new_ip[32];
+            if (get_ip(new_ip, sizeof(new_ip))) {
+                if (strcmp(new_ip, ip) != 0) {
+                    snprintf(ip, sizeof(ip), "%s", new_ip);
+                    snprintf(url, sizeof(url), "http://%s:%d/", ip, PORT);
+                    have_qr = qrcodegen_encodeText(url, qr_temp, qr, qrcodegen_Ecc_MEDIUM,
+                                                   qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
+                                                   qrcodegen_Mask_AUTO, true);
+                }
+                if (!server_started) {
+                    server_start(SAVE_DIR, PORT);
+                    server_started = 1;
+                }
+            } else {
+                ip[0] = '\0';   /* show the "Waiting for Wi-Fi" screen */
             }
         }
 
@@ -171,8 +198,9 @@ int main(void)
                                       "%.40s", st.message);
             }
 
-            vita2d_pgf_draw_text(font, tx, 450, DIM, 0.85f, "Saved to: " SAVE_DIR "/");
-            vita2d_pgf_draw_text(font, tx, 480, DIM, 0.85f, "START: exit");
+            vita2d_pgf_draw_text(font, tx, 430, DIM, 0.85f, "Saved to: " SAVE_DIR "/");
+            vita2d_pgf_draw_text(font, tx, 460, DIM, 0.85f, "TRIANGLE: screen off (keeps sending)");
+            vita2d_pgf_draw_text(font, tx, 485, DIM, 0.85f, "START: exit");
         }
 
         vita2d_end_drawing();
