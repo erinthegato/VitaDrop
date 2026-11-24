@@ -68,17 +68,58 @@ The first build downloads a small QR code library, so it needs internet. When it
 
 Once it's set up, you can send any photo or file with **Share → Send to Vita**, without scanning anything. The Vita answers to the name `vitadrop.local`, so the shortcut keeps working even when its IP address changes.
 
-Set it up once in the **Shortcuts** app (the steps are also on the upload page):
+Set it up once in the **Shortcuts** app. It takes about 5 minutes, and the same steps are on the upload page.
 
-1. Tap **+**, then tap the name at the top and call it **Send to Vita**.
-2. Tap the name again → **Details** → turn on **Show in Share Sheet**.
-3. Add **Repeat with Each** and set it to **Shortcut Input**.
-4. Inside the repeat, add **Get Contents of URL** with the URL `http://vitadrop.local:8080/upload`.
-5. Tap **Show More**:
-   - Set **Method** to **POST**.
-   - Under **Headers**, add `X-File-Name` = **Repeat Item**, then tap it and choose **Name**.
-   - Set **Request Body** to **File** and pick **Repeat Item**.
-6. After **End Repeat**, add **Show Notification** with the text "Sent to Vita". Tap **Done**.
+**Part 1: Make a new shortcut**
+1. Open the **Shortcuts** app.
+2. Tap **+** in the top-right corner.
+3. Tap **New Shortcut** at the top, then **Rename**. Type **Send to Vita** and tap **Done**.
+
+**Part 2: Put it in the Share menu**
+
+4. Tap the **ⓘ** button at the bottom of the screen.
+5. Turn on **Show in Share Sheet**.
+6. Tap **Done**.
+
+**Part 3: Handle several files at once**
+
+7. Tap **Search for apps and actions** at the bottom.
+8. Type `repeat with each` and tap **Repeat with Each**.
+
+   ✓ You should see "Repeat with each item in **Shortcut Input**", then "End Repeat". If it says **Items**, tap it and choose **Shortcut Input**.
+
+**Part 4: Send each file to the Vita**
+
+9. Search `get contents of url` and tap **Get Contents of URL**.
+10. If it appeared under **End Repeat**, press and hold it and drag it **up**, between the two Repeat lines.
+11. Tap the blue word **URL** and type `http://vitadrop.local:8080/upload`
+12. Tap the small **arrow** on the right of this action to show more options.
+13. **Method:** tap **GET** and choose **POST**.
+14. **Headers:** tap **Add new header**. In **Key**, type `X-File-Name`
+15. Tap the **Text** box next to it. In the bar above the keyboard, tap **Repeat Item**.
+16. Tap the blue **Repeat Item** bubble you just added and choose **Name**.
+17. **Request Body:** tap **JSON** and choose **File**.
+18. Tap the blue word **File** and choose **Repeat Item**.
+
+**Part 5: Finish**
+
+19. Search `show notification` and tap **Show Notification**. It goes at the bottom, after End Repeat, which is right.
+20. Tap **Hello World!** and change it to **Sent to Vita**.
+21. Tap **Done** in the top-right corner.
+
+Your finished shortcut should read:
+
+```
+Repeat with each item in [Shortcut Input]
+    Get contents of http://vitadrop.local:8080/upload
+        Method: POST
+        Header: X-File-Name = [Repeat Item › Name]
+        Request Body: File = [Repeat Item]
+End Repeat
+Show notification "Sent to Vita"
+```
+
+**Try it:** with VitaDrop open on the Vita, open a photo in **Photos**, tap **Share**, scroll down and tap **Send to Vita**.
 
 The first time you use it, allow the shortcut to connect and to find devices on your local network. If your router blocks `.local` names, replace `vitadrop.local:8080` with the address shown under the QR code on the Vita.
 
